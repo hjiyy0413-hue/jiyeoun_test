@@ -106,11 +106,8 @@
   <div class="toolbar">
     <button class="primary" onclick="addLedger()">➕ 지출 항목 추가</button>
     <button onclick="addFund()">➕ 통장 추가</button>
-    <button class="ghost" onclick="exportJSON()">💾 저장(내보내기)</button>
-    <button class="ghost" onclick="document.getElementById('imp').click()">📂 불러오기</button>
     <button class="ghost" onclick="exportCSV()">📄 CSV(엑셀)</button>
     <button class="ghost" onclick="resetAll()" style="margin-left:auto;color:var(--muted)">↺ 초기화</button>
-    <input id="imp" type="file" accept=".json" style="display:none" onchange="importJSON(event)">
   </div>
 
   <div class="kpis" id="kpis"></div>
@@ -160,6 +157,7 @@
       <tbody id="fundBody"></tbody>
       <tfoot id="fundFoot"></tfoot>
     </table>
+    <button class="primary add-row" onclick="addFund()" style="width:100%;justify-content:center;margin-top:12px">➕ 자금 추가하기</button>
   </div>
 </div>
 
@@ -273,22 +271,6 @@ function initCloud(){
   }catch(e){ flagSaved("Firebase 설정 오류: "+e.message); }
 }
 
-function exportJSON(){
-  const data={ledger:state.ledger.map(r=>[r.cat,r.name,r.payer,r.cash,r.card,r.rem]),
-              funds:state.funds.map(f=>[f.acc,f.owner,f.bal])};
-  download(JSON.stringify(data,null,2), "결혼예산_데이터.json", "application/json");
-  flagSaved("파일로 저장함");
-}
-function importJSON(ev){
-  const file=ev.target.files[0]; if(!file) return;
-  const rd=new FileReader();
-  rd.onload=e=>{ try{
-    const o=JSON.parse(e.target.result);
-    state={ledger:o.ledger.map(rowObj), funds:o.funds.map(fundObj)};
-    renderAll(); persist(); flagSaved("불러옴");
-  }catch(err){ alert("파일을 읽을 수 없어요. 이 대시보드에서 내보낸 JSON 파일인지 확인해 주세요."); } };
-  rd.readAsText(file); ev.target.value="";
-}
 function exportCSV(){
   let rows=[["대분류","소분류","결제자","현금","카드","지출완료","남은잔금","총소요"]];
   state.ledger.forEach(r=>rows.push([r.cat,r.name,r.payer,r.cash,r.card,r.cash+r.card,r.rem,r.cash+r.card+r.rem]));
