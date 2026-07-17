@@ -292,12 +292,21 @@ const FIREBASE_CONFIG = {
   appId: "1:505598460822:web:9a6146113501ab741553b7"
 };
 const CLOUD = !!FIREBASE_CONFIG.projectId;   // projectId 있으면 실시간 공유 모드
-let db=null, docRef=null, saveTimer=null;
+let db=null, docRef=null, saveTimer=null, hasUnsaved=false;
 
 let uid = 1;
-function rowObj(a){return {id:uid++, cat:(CAT_MIGRATE[a[0]]||a[0]), name:a[1], payer:a[2], cash:+a[3]||0, card:+a[4]||0, rem:+a[5]||0, memo:a[6]||""};}
-function fundObj(a){return {id:uid++, acc:a[0], owner:a[1], bal:+a[2]||0};}
-function planObj(a){return {id:uid++, item:a[0]||"", amount:+a[1]||0, memo:a[2]||"", owner:a[3]||"", type:a[4]||"저축"};}
+function rowObj(a){
+  if(Array.isArray(a)) return {id:uid++, cat:(CAT_MIGRATE[a[0]]||a[0]||""), name:a[1]||"", payer:a[2]||"", cash:+a[3]||0, card:+a[4]||0, rem:+a[5]||0, memo:a[6]||""};
+  return {id:uid++, cat:(CAT_MIGRATE[a.cat]||a.cat||""), name:a.name||"", payer:a.payer||"", cash:+a.cash||0, card:+a.card||0, rem:+a.rem||0, memo:a.memo||""};
+}
+function fundObj(a){
+  if(Array.isArray(a)) return {id:uid++, acc:a[0]||"", owner:a[1]||"", bal:+a[2]||0};
+  return {id:uid++, acc:a.acc||"", owner:a.owner||"", bal:+a.bal||0};
+}
+function planObj(a){
+  if(Array.isArray(a)) return {id:uid++, item:a[0]||"", amount:+a[1]||0, memo:a[2]||"", owner:a[3]||"", type:a[4]||"저축"};
+  return {id:uid++, item:a.item||"", amount:+a.amount||0, memo:a.memo||"", owner:a.owner||"", type:a.type||"저축"};
+}
 function seedState(){ return {ledger:SEED.ledger.map(rowObj), funds:SEED.funds.map(fundObj), plan:(SEED.plan||[]).map(planObj), log:[]}; }
 
 let state = CLOUD ? {ledger:[],funds:[],plan:[],log:[]} : (load() || seedState());
@@ -320,22 +329,25 @@ function flagSaved(t){ const el=document.getElementById("saveState"); if(el) el.
 // ================= 클라우드(실시간 공유) =================
 function toPlain(){
   return {
-    ledger: state.ledger.map(r=>[r.cat,r.name,r.payer,r.cash,r.card,r.rem,r.memo]),
-    funds:  state.funds.map(f=>[f.acc,f.owner,f.bal]),
-    plan:   state.plan.map(p=>[p.item,p.amount,p.memo,p.owner,p.type]),
+    ledger: state.ledger.map(r=>({cat:r.cat,name:r.name,payer:r.payer,cash:r.cash,card:r.card,rem:r.rem,memo:r.memo})),
+    funds:  state.funds.map(f=>({acc:f.acc,owner:f.owner,bal:f.bal})),
+    plan:   state.plan.map(p=>({item:p.item,amount:p.amount,memo:p.memo,owner:p.owner,type:p.type})),
     log:    state.log||[],
     updated: Date.now()
   };
 }
 function saveCloud(){
   if(!docRef) return;
+  hasUnsaved=true;
   flagSaved("저장 중…");
   clearTimeout(saveTimer);
   saveTimer=setTimeout(()=>{
-    docRef.set(toPlain())
-      .then(()=>flagSaved("클라우드 저장됨 · 실시간 공유 중"))
-      .catch(e=>flagSaved("저장 오류: "+(e.code||e.message)));
-  },600);
+    const payload=toPlain();
+    console.log("[save] writing", {ledger:payload.ledger.length, funds:payload.funds.length, plan:payload.plan.length, logSize:JSON.stringify(payload).length});
+    docRef.set(payload)
+      .then(()=>{ hasUnsaved=false; console.log("[save] ok"); flagSaved("클라우드 저장됨 · 실시간 공유 중"); })
+      .catch(e=>{ hasUnsaved=false; console.error("[save] FAIL", e); flagSaved("저장 오류: "+(e.code||e.message)); });
+  },300);
 }
 function initCloud(){
   if(typeof firebase==="undefined"){
@@ -633,7 +645,7 @@ function renderSummary(){
 
 function renderAll(){ renderLedger(); renderFunds(); renderSummary(); renderPlan(); renderPlanPersons(); renderLog(); }
 document.addEventListener("keydown", e=>{
-  if(e.key==="Enter" && e.target.tagName==="INPUT"){ e.preventDefault(); e.target.blur(); }
+  if(e.key==="Enter" && !e.isComposing && e.keyCode!==229 && e.target.tagName==="INPUT"){ e.preventDefault(); e.target.blur(); }
 });
 if(CLOUD){ initCloud(); }
 else { renderAll(); flagSaved("준비됨 (내 기기 저장 모드)"); }
