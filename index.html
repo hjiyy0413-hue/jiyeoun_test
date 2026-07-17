@@ -98,7 +98,7 @@
   .pill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;color:#fff;margin-left:auto}
   .foot-note{color:var(--muted);font-size:11.5px;margin-top:8px}
 
-  .log-list{max-height:360px;overflow-y:auto;font-size:12.5px}
+  .log-list{max-height:70vh;overflow-y:auto;font-size:13px}
   .log-item{display:flex;gap:12px;padding:8px 4px;border-bottom:1px dashed var(--line);align-items:baseline}
   .log-item:last-child{border-bottom:none}
   .log-time{color:var(--muted);font-variant-numeric:tabular-nums;flex-shrink:0;min-width:88px}
@@ -157,6 +157,7 @@
   <div class="tabs">
     <button class="tab active" data-tab="dashboard" onclick="switchTab('dashboard')">💍 결혼 자금</button>
     <button class="tab" data-tab="plan" onclick="switchTab('plan')">💼 자금 계획표</button>
+    <button class="tab" data-tab="log" onclick="switchTab('log')">🕘 수정 이력</button>
   </div>
 
   <div id="tab-dashboard" class="tab-content active">
@@ -204,7 +205,9 @@
       <div class="split" id="split"></div>
       <div class="foot-note">낸 돈 = 지금까지 실제로 낸 금액 · 내야 할 돈 = 앞으로 낼 예정 금액</div>
     </div>
+  </div>
 
+  <div id="tab-log" class="tab-content">
     <div class="card">
       <h2>🕘 수정 이력 <span class="hint">최근 50개</span></h2>
       <div id="logBody" class="log-list"></div>
