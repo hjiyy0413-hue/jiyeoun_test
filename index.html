@@ -74,6 +74,8 @@
   select.pill:focus{outline:none;box-shadow:0 0 0 3px rgba(74,127,209,.28)}
   select.pill option{background:#fff;color:var(--ink);font-weight:600}
   .ledger-tbl th,.ledger-tbl td{padding:4px 5px}
+  .plan-tbl{table-layout:fixed}
+  .plan-tbl th,.plan-tbl td{padding:8px 10px}
   .del{border:none;background:transparent;color:#c9c9c9;font-size:16px;padding:2px 6px;cursor:pointer;line-height:1}
   .del:hover{color:var(--danger)}
   .cell-calc{color:var(--muted);font-variant-numeric:tabular-nums;font-size:12.5px}
@@ -96,6 +98,16 @@
   .pill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;color:#fff;margin-left:auto}
   .foot-note{color:var(--muted);font-size:11.5px;margin-top:8px}
 
+  .log-list{max-height:360px;overflow-y:auto;font-size:12.5px}
+  .log-item{display:flex;gap:12px;padding:8px 4px;border-bottom:1px dashed var(--line);align-items:baseline}
+  .log-item:last-child{border-bottom:none}
+  .log-time{color:var(--muted);font-variant-numeric:tabular-nums;flex-shrink:0;min-width:88px}
+  .log-msg{color:var(--ink)}
+  .log-msg .k{color:var(--muted);font-weight:600}
+  .log-msg .old{color:#c0492f;text-decoration:line-through;margin:0 4px}
+  .log-msg .new{color:var(--green);font-weight:700}
+  .log-empty{color:var(--muted);padding:12px 4px}
+
   .tabs{display:flex;gap:2px;margin-bottom:18px;border-bottom:2px solid var(--line)}
   .tab{padding:11px 22px;font-weight:700;font-size:14px;color:var(--muted);cursor:pointer;border:none;background:transparent;border-bottom:3px solid transparent;margin-bottom:-2px;transition:.15s}
   .tab:hover{color:var(--blue)}
@@ -114,10 +126,20 @@
   .plan-person li .name{color:var(--ink);font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .plan-person li .amt{color:var(--muted);font-variant-numeric:tabular-nums;margin-left:10px}
   .plan-empty{color:var(--muted);font-size:12px;padding:6px 0}
+  .plan-split{display:flex;flex-direction:column;gap:4px;font-size:12.5px;margin-top:4px;padding-top:8px;border-top:1px dashed var(--line)}
+  .plan-split span{display:flex;align-items:center;gap:6px;color:var(--muted)}
+  .plan-split i{display:inline-block;width:8px;height:8px;border-radius:50%}
+  .plan-split b{margin-left:auto;color:var(--ink);font-variant-numeric:tabular-nums}
 
   @media(max-width:760px){.kpis{grid-template-columns:repeat(2,1fr)}.split{grid-template-columns:1fr}
     .plan-persons{grid-template-columns:1fr}
-    .hide-sm{display:none}}
+    .hide-sm{display:none}
+    body{padding:16px 10px 60px}
+    .card{padding:14px 12px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+    .ledger-tbl{min-width:640px}
+    .plan-tbl{min-width:560px}
+    h1{font-size:20px}
+    .tab{padding:10px 14px;font-size:13px}}
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -182,6 +204,11 @@
       <div class="split" id="split"></div>
       <div class="foot-note">낸 돈 = 지금까지 실제로 낸 금액 · 내야 할 돈 = 앞으로 낼 예정 금액</div>
     </div>
+
+    <div class="card">
+      <h2>🕘 수정 이력 <span class="hint">최근 50개</span></h2>
+      <div id="logBody" class="log-list"></div>
+    </div>
   </div>
 
   <div id="tab-plan" class="tab-content">
@@ -189,10 +216,11 @@
       <h2>💼 자금 계획표 <span class="hint">항목·금액·메모·담당자 입력</span></h2>
       <table class="ledger-tbl">
         <thead><tr>
-          <th style="width:26%;text-align:left">항목</th>
-          <th>금액</th>
-          <th style="width:34%;text-align:left">메모</th>
+          <th style="width:22%;text-align:left">항목</th>
+          <th style="width:32%;text-align:left">메모</th>
+          <th style="width:14%">금액</th>
           <th style="width:12%;text-align:left">담당자</th>
+          <th style="width:12%;text-align:left">구분</th>
           <th style="width:28px"></th>
         </tr></thead>
         <tbody id="planBody"></tbody>
@@ -241,6 +269,9 @@ const CATS = ["결혼준비","비행기","부동산","기타"];
 const PAYERS = ["","구일","지연","공동"];
 const catColor = {"결혼준비":"#2e5496","비행기":"#4a9c6d","부동산":"#b8a5e0","기타":"#8a63b8"};
 const payerColor = {"":"#a8b0bc","구일":"#2e5496","지연":"#4a9c6d","공동":"#8a63b8"};
+const PLAN_TYPES = ["저축","가능"];
+const typeColor = {"저축":"#8a63b8","가능":"#4a9c6d"};
+const LOG_MAX = 50;
 const KEY = "weddingBudget_v3";
 
 // ============================================================
@@ -262,10 +293,10 @@ let db=null, docRef=null, saveTimer=null;
 let uid = 1;
 function rowObj(a){return {id:uid++, cat:a[0], name:a[1], payer:a[2], cash:+a[3]||0, card:+a[4]||0, rem:+a[5]||0, memo:a[6]||""};}
 function fundObj(a){return {id:uid++, acc:a[0], owner:a[1], bal:+a[2]||0};}
-function planObj(a){return {id:uid++, item:a[0]||"", amount:+a[1]||0, memo:a[2]||"", owner:a[3]||""};}
-function seedState(){ return {ledger:SEED.ledger.map(rowObj), funds:SEED.funds.map(fundObj), plan:(SEED.plan||[]).map(planObj)}; }
+function planObj(a){return {id:uid++, item:a[0]||"", amount:+a[1]||0, memo:a[2]||"", owner:a[3]||"", type:a[4]||"저축"};}
+function seedState(){ return {ledger:SEED.ledger.map(rowObj), funds:SEED.funds.map(fundObj), plan:(SEED.plan||[]).map(planObj), log:[]}; }
 
-let state = CLOUD ? {ledger:[],funds:[],plan:[]} : (load() || seedState());
+let state = CLOUD ? {ledger:[],funds:[],plan:[],log:[]} : (load() || seedState());
 
 // ================= 저장/불러오기 =================
 function persist(){
@@ -276,7 +307,8 @@ function persist(){
 function load(){
   try{ const s=localStorage.getItem(KEY); if(!s) return null;
     const o=JSON.parse(s); o.ledger.forEach(r=>r.id=uid++); o.funds.forEach(f=>f.id=uid++);
-    if(!o.plan) o.plan=[]; o.plan.forEach(p=>p.id=uid++); return o;
+    if(!o.plan) o.plan=[]; o.plan.forEach(p=>p.id=uid++);
+    if(!o.log) o.log=[]; return o;
   }catch(e){ return null; }
 }
 function flagSaved(t){ const el=document.getElementById("saveState"); if(el) el.textContent="● "+t; }
@@ -286,7 +318,8 @@ function toPlain(){
   return {
     ledger: state.ledger.map(r=>[r.cat,r.name,r.payer,r.cash,r.card,r.rem,r.memo]),
     funds:  state.funds.map(f=>[f.acc,f.owner,f.bal]),
-    plan:   state.plan.map(p=>[p.item,p.amount,p.memo,p.owner]),
+    plan:   state.plan.map(p=>[p.item,p.amount,p.memo,p.owner,p.type]),
+    log:    state.log||[],
     updated: Date.now()
   };
 }
@@ -316,7 +349,7 @@ function initCloud(){
       if(!snap.exists){ state=seedState(); renderAll(); saveCloud(); return; }
       if(snap.metadata.hasPendingWrites) return;   // 내가 방금 쓴 변경의 반향은 무시(입력 끊김 방지)
       const d=snap.data();
-      state={ledger:(d.ledger||[]).map(rowObj), funds:(d.funds||[]).map(fundObj), plan:(d.plan||[]).map(planObj)};
+      state={ledger:(d.ledger||[]).map(rowObj), funds:(d.funds||[]).map(fundObj), plan:(d.plan||[]).map(planObj), log:d.log||[]};
       renderAll();
       flagSaved("실시간 동기화됨");
     }, err=>{ flagSaved("연결 오류: "+(err.code||err.message)); });
@@ -361,12 +394,12 @@ function onEditFund(id,field,val){
   }
   renderSummary(); persist();
 }
-function addLedger(){ state.ledger.push(rowObj(["결혼준비","","",0,0,0,""])); renderLedger(); renderSummary(); persist();
+function addLedger(){ state.ledger.push(rowObj(["결혼준비","","",0,0,0,""])); logAdd("지출"); renderLedger(); renderSummary(); persist();
   const b=document.getElementById("ledgerBody"); b.lastElementChild.querySelector("input").focus(); }
-function delLedger(id){ state.ledger=state.ledger.filter(r=>r.id!=id); renderLedger(); renderSummary(); persist(); }
-function addFund(){ state.funds.push(fundObj(["","",0])); renderFunds(); renderSummary(); persist();
+function delLedger(id){ const r=findRow(id); if(r) logDel("지출", r.name); state.ledger=state.ledger.filter(r=>r.id!=id); renderLedger(); renderSummary(); persist(); }
+function addFund(){ state.funds.push(fundObj(["","",0])); logAdd("자금"); renderFunds(); renderSummary(); persist();
   const b=document.getElementById("fundBody"); b.lastElementChild.querySelector("input").focus(); }
-function delFund(id){ state.funds=state.funds.filter(f=>f.id!=id); renderFunds(); renderSummary(); persist(); }
+function delFund(id){ const f=findFund(id); if(f) logDel("자금", f.acc); state.funds=state.funds.filter(f=>f.id!=id); renderFunds(); renderSummary(); persist(); }
 
 function findPlan(id){ return state.plan.find(p=>p.id==id); }
 function onEditPlan(id,field,val){
@@ -379,13 +412,77 @@ function onEditPlan(id,field,val){
   if(field==="amount") renderPlanFoot();
   renderPlanPersons(); persist();
 }
-function addPlan(){ state.plan.push(planObj(["",0,"",""])); renderPlan(); renderPlanPersons(); persist();
+function addPlan(){ state.plan.push(planObj(["",0,"","","저축"])); logAdd("계획"); renderPlan(); renderPlanPersons(); persist();
   const b=document.getElementById("planBody"); b.lastElementChild.querySelector("input").focus(); }
-function delPlan(id){ state.plan=state.plan.filter(p=>p.id!=id); renderPlan(); renderPlanPersons(); persist(); }
+function delPlan(id){ const p=findPlan(id); if(p) logDel("계획", p.item); state.plan=state.plan.filter(p=>p.id!=id); renderPlan(); renderPlanPersons(); persist(); }
 
 function switchTab(name){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===name));
   document.querySelectorAll('.tab-content').forEach(c=>c.classList.toggle('active', c.id==='tab-'+name));
+}
+
+// ================= 수정 로그 =================
+function nowStamp(){
+  const d=new Date();
+  const p=n=>String(n).padStart(2,"0");
+  return `${p(d.getMonth()+1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function pushLog(msg){
+  if(!state.log) state.log=[];
+  state.log.unshift({ts:nowStamp(), msg});
+  if(state.log.length>LOG_MAX) state.log.length=LOG_MAX;
+  renderLog();
+}
+function fmtVal(v){ if(v===""||v==null) return "(빈값)"; if(!isNaN(v)&&v!=="") return won(+v); return v; }
+function logChange(scope, target, field, oldV, newV){
+  const msg=`<span class="k">${scope}</span> "${esc(target)}" · ${field} <span class="old">${fmtVal(oldV)}</span>→<span class="new">${fmtVal(newV)}</span>`;
+  pushLog(msg);
+}
+function logAdd(scope){ pushLog(`<span class="k">${scope}</span> 추가`); }
+function logDel(scope, target){ pushLog(`<span class="k">${scope}</span> "${esc(target||"(빈)")}" 삭제`); }
+
+const FIELD_LABEL = {
+  cat:"대분류", name:"소분류", memo:"메모", payer:"결제자",
+  cash:"현금", card:"카드", rem:"내야할돈",
+  acc:"통장명", owner:"명의", bal:"잔액",
+  item:"항목", amount:"금액", type:"구분"
+};
+function logEditLedger(id, field, oldV, newV){
+  const r=findRow(id); if(!r) return;
+  logChange("지출", r.name||"(항목없음)", FIELD_LABEL[field]||field, oldV, newV);
+}
+function logEditFund(id, field, oldV, newV){
+  const f=findFund(id); if(!f) return;
+  logChange("자금", f.acc||"(통장없음)", FIELD_LABEL[field]||field, oldV, newV);
+}
+function logEditPlan(id, field, oldV, newV){
+  const p=findPlan(id); if(!p) return;
+  logChange("계획", p.item||"(항목없음)", FIELD_LABEL[field]||field, oldV, newV);
+}
+
+// Focus/blur 기반 input 변경 감지 (키스트로크마다 로그 남기지 않음)
+document.addEventListener("focusin", e=>{
+  const t=e.target;
+  if(t.tagName==="INPUT" || t.tagName==="SELECT") t.dataset.origVal=t.value;
+});
+document.addEventListener("focusout", e=>{
+  const t=e.target;
+  if(t.tagName!=="INPUT" && t.tagName!=="SELECT") return;
+  const orig=t.dataset.origVal;
+  if(orig===undefined || orig===t.value) return;
+  const handler=t.getAttribute("oninput")||t.getAttribute("onchange")||"";
+  const m=handler.match(/onEdit(\w*)\((\d+),\s*['"](\w+)['"]/);
+  if(!m) return;
+  const [_, scope, id, field]=m;
+  if(scope==="") logEditLedger(id, field, orig, t.value);
+  else if(scope==="Fund") logEditFund(id, field, orig, t.value);
+  else if(scope==="Plan") logEditPlan(id, field, orig, t.value);
+});
+
+function renderLog(){
+  const el=document.getElementById("logBody"); if(!el) return;
+  if(!state.log || !state.log.length){ el.innerHTML=`<div class="log-empty">아직 수정 이력이 없어요</div>`; return; }
+  el.innerHTML=state.log.map(l=>`<div class="log-item"><span class="log-time">${l.ts}</span><span class="log-msg">${l.msg}</span></div>`).join("");
 }
 
 // ================= 렌더 =================
@@ -395,6 +492,7 @@ const esc=s=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"
 
 function catOptions(sel){return CATS.map(c=>`<option ${c===sel?"selected":""}>${c}</option>`).join("");}
 function payOptions(sel){return PAYERS.map(p=>`<option value="${p}" ${p===sel?"selected":""}>${p||"—"}</option>`).join("");}
+function typeOptions(sel){return PLAN_TYPES.map(t=>`<option ${t===sel?"selected":""}>${t}</option>`).join("");}
 
 function statusPill(r){
   if(r.rem>0) return '<span class="tag tag-due">미납</span>';
@@ -455,24 +553,30 @@ function renderPlan(){
   b.innerHTML=state.plan.map(p=>`
    <tr data-id="${p.id}">
      <td class="tx"><input value="${esc(p.item)}" placeholder="항목명 (예: 청약, 적금)" oninput="onEditPlan(${p.id},'item',this.value)"></td>
-     <td><input type="number" value="${p.amount||''}" placeholder="0" oninput="onEditPlan(${p.id},'amount',this.value)"></td>
      <td class="tx"><input value="${esc(p.memo)}" placeholder="메모" oninput="onEditPlan(${p.id},'memo',this.value)"></td>
+     <td><input type="number" value="${p.amount||''}" placeholder="0" oninput="onEditPlan(${p.id},'amount',this.value)"></td>
      <td class="tx"><select class="pill" style="background-color:${payerColor[p.owner]||'#a8b0bc'}" onchange="onEditPlan(${p.id},'owner',this.value)">${payOptions(p.owner)}</select></td>
+     <td class="tx"><select class="pill" style="background-color:${typeColor[p.type]||'#8a63b8'}" onchange="onEditPlan(${p.id},'type',this.value)">${typeOptions(p.type)}</select></td>
      <td><button class="del" title="삭제" onclick="delPlan(${p.id})">✕</button></td>
    </tr>`).join("");
   renderPlanFoot();
 }
 function renderPlanFoot(){
   document.getElementById("planFoot").innerHTML=`<tr>
-    <td>합계</td><td class="num">${won(sum(state.plan,p=>p.amount))}</td><td></td><td></td><td></td></tr>`;
+    <td>합계</td><td></td><td class="num">${won(sum(state.plan,p=>p.amount))}</td><td></td><td></td><td></td></tr>`;
 }
 function renderPlanPersons(){
   const owners=["구일","지연","공동"];
   document.getElementById("planPersons").innerHTML=owners.map(o=>{
-    const total=sum(state.plan.filter(p=>p.owner===o),p=>p.amount);
+    const rows=state.plan.filter(p=>p.owner===o);
+    const total=sum(rows,p=>p.amount);
+    const save=sum(rows.filter(p=>p.type==="저축"),p=>p.amount);
+    const avail=sum(rows.filter(p=>p.type==="가능"),p=>p.amount);
     return `<div class="plan-person">
       <div class="head"><span class="dot" style="background:${payerColor[o]}"></span><b>${o}</b></div>
-      <div class="total" style="color:${payerColor[o]}">${won(total)}</div></div>`;
+      <div class="total" style="color:${payerColor[o]}">${won(total)}</div>
+      <div class="plan-split"><span><i style="background:${typeColor["저축"]}"></i>저축 <b>${won(save)}</b></span><span><i style="background:${typeColor["가능"]}"></i>가능 <b>${won(avail)}</b></span></div>
+    </div>`;
   }).join("");
 }
 
@@ -520,7 +624,7 @@ function renderSummary(){
   }).join("") || `<div class="foot-note">결제자를 지정하면 사람별 분담이 표시됩니다.</div>`;
 }
 
-function renderAll(){ renderLedger(); renderFunds(); renderSummary(); renderPlan(); renderPlanPersons(); }
+function renderAll(){ renderLedger(); renderFunds(); renderSummary(); renderPlan(); renderPlanPersons(); renderLog(); }
 document.addEventListener("keydown", e=>{
   if(e.key==="Enter" && e.target.tagName==="INPUT"){ e.preventDefault(); e.target.blur(); }
 });
