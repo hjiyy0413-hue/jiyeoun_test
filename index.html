@@ -76,6 +76,14 @@
   .ledger-tbl th,.ledger-tbl td{padding:4px 5px}
   .plan-tbl{table-layout:fixed}
   .plan-tbl th,.plan-tbl td{padding:8px 10px}
+  .travel-tbl{table-layout:fixed}
+  .travel-tbl th,.travel-tbl td{padding:8px 10px}
+  .travel-tbl a{color:var(--blue);text-decoration:none;font-size:12px}
+  .travel-tbl a:hover{text-decoration:underline}
+  .link-cell{display:flex;align-items:center;gap:6px}
+  .link-cell input{flex:1}
+  .memo-area{width:100%;min-height:200px;font-family:inherit;font-size:14px;color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:12px;resize:vertical;line-height:1.6;background:#fff;transition:.15s}
+  .memo-area:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(74,127,209,.12)}
   .del{border:none;background:transparent;color:#c9c9c9;font-size:16px;padding:2px 6px;cursor:pointer;line-height:1}
   .del:hover{color:var(--danger)}
   .cell-calc{color:var(--muted);font-variant-numeric:tabular-nums;font-size:12.5px}
@@ -195,6 +203,7 @@
   <div class="tabs">
     <button class="tab active" data-tab="dashboard" onclick="switchTab('dashboard')">💍 결혼 자금</button>
     <button class="tab" data-tab="plan" onclick="switchTab('plan')">💼 자금 계획표</button>
+    <button class="tab" data-tab="travel" onclick="switchTab('travel')">✈️ 여행</button>
     <button class="tab" data-tab="log" onclick="switchTab('log')">🕘 수정 이력</button>
   </div>
 
@@ -281,6 +290,28 @@
       <div class="plan-persons" id="planPersons"></div>
     </div>
   </div>
+
+  <div id="tab-travel" class="tab-content">
+    <div class="card">
+      <h2>✈️ 여행 일정 <span class="hint">날짜·이동시간·내용·링크</span></h2>
+      <table class="ledger-tbl travel-tbl">
+        <thead><tr>
+          <th style="width:14%;text-align:center">날짜</th>
+          <th style="width:14%;text-align:center">이동 시간</th>
+          <th style="width:32%;text-align:center">내용</th>
+          <th style="width:32%;text-align:center">링크</th>
+          <th style="width:28px"></th>
+        </tr></thead>
+        <tbody id="travelBody"></tbody>
+      </table>
+      <button class="primary add-row" onclick="addTravel()" style="width:100%;justify-content:center;margin-top:12px">➕ 일정 추가하기</button>
+    </div>
+
+    <div class="card">
+      <h2>📝 메모</h2>
+      <textarea id="travelMemo" class="memo-area" placeholder="자유롭게 메모하세요…" oninput="onEditTravelMemo(this.value)"></textarea>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -309,7 +340,9 @@ const SEED = {
   funds:[
     ["케이뱅크","지연",60000000],
   ],
-  plan:[]
+  plan:[],
+  travel:[],
+  travelMemo:""
 };
 
 const CATS = ["결혼","신혼여행","부동산","기타"];
@@ -361,12 +394,21 @@ function planObj(a){
   if(Array.isArray(a)) return {id:uid++, item:a[0]||"", amount:+a[1]||0, memo:a[2]||"", owner:a[3]||"", type:a[4]||"저축"};
   return {id:uid++, item:a.item||"", amount:+a.amount||0, memo:a.memo||"", owner:a.owner||"", type:a.type||"저축"};
 }
-function seedState(){ return {ledger:SEED.ledger.map(rowObj), funds:SEED.funds.map(fundObj), plan:(SEED.plan||[]).map(planObj), log:[]}; }
+function travelObj(a){
+  if(Array.isArray(a)) return {id:uid++, date:a[0]||"", duration:a[1]||"", content:a[2]||"", link:a[3]||""};
+  return {id:uid++, date:a.date||"", duration:a.duration||"", content:a.content||"", link:a.link||""};
+}
+function seedState(){ return {ledger:SEED.ledger.map(rowObj), funds:SEED.funds.map(fundObj), plan:(SEED.plan||[]).map(planObj), travel:(SEED.travel||[]).map(travelObj), travelMemo:SEED.travelMemo||"", log:[]}; }
 
-let state = CLOUD ? {ledger:[],funds:[],plan:[],log:[]} : (load() || seedState());
+let state = CLOUD ? {ledger:[],funds:[],plan:[],travel:[],travelMemo:"",log:[]} : (load() || seedState());
 
 // ================= 저장/불러오기 =================
 function persist(){
+  if(isLocalDev()){
+    try{ localStorage.setItem(KEY, JSON.stringify(state)); flagSaved("로컬 저장됨"); }
+    catch(e){ flagSaved("로컬 저장 오류"); }
+    return;
+  }
   if(CLOUD){ saveCloud(); return; }
   try{ localStorage.setItem(KEY, JSON.stringify(state)); flagSaved("자동 저장됨 (내 기기)"); }
   catch(e){ flagSaved("변경됨 (저장하려면 💾 내보내기)"); }
@@ -375,6 +417,8 @@ function load(){
   try{ const s=localStorage.getItem(KEY); if(!s) return null;
     const o=JSON.parse(s); o.ledger.forEach(r=>r.id=uid++); o.funds.forEach(f=>f.id=uid++);
     if(!o.plan) o.plan=[]; o.plan.forEach(p=>p.id=uid++);
+    if(!o.travel) o.travel=[]; o.travel.forEach(t=>t.id=uid++);
+    if(o.travelMemo==null) o.travelMemo="";
     if(!o.log) o.log=[]; return o;
   }catch(e){ return null; }
 }
@@ -386,6 +430,8 @@ function toPlain(){
     ledger: state.ledger.map(r=>({cat:r.cat,name:r.name,payer:r.payer,cash:r.cash,card:r.card,rem:r.rem,memo:r.memo})),
     funds:  state.funds.map(f=>({acc:f.acc,owner:f.owner,bal:f.bal,memo:f.memo||"",lastCheck:f.lastCheck||""})),
     plan:   state.plan.map(p=>({item:p.item,amount:p.amount,memo:p.memo,owner:p.owner,type:p.type})),
+    travel: state.travel.map(t=>({date:t.date,duration:t.duration,content:t.content,link:t.link})),
+    travelMemo: state.travelMemo||"",
     log:    state.log||[],
     updated: Date.now()
   };
@@ -413,7 +459,7 @@ function initCloud(){
     if(!snap.exists){ state=seedState(); renderAll(); saveCloud(); return; }
     if(snap.metadata.hasPendingWrites) return;   // 내가 방금 쓴 변경의 반향은 무시(입력 끊김 방지)
     const d=snap.data();
-    state={ledger:(d.ledger||[]).map(rowObj), funds:(d.funds||[]).map(fundObj), plan:(d.plan||[]).map(planObj), log:d.log||[]};
+    state={ledger:(d.ledger||[]).map(rowObj), funds:(d.funds||[]).map(fundObj), plan:(d.plan||[]).map(planObj), travel:(d.travel||[]).map(travelObj), travelMemo:d.travelMemo||"", log:d.log||[]};
     renderAll();
     flagSaved("실시간 동기화됨");
   }, err=>{ flagSaved("연결 오류: "+(err.code||err.message)); });
@@ -443,7 +489,22 @@ function signIn(){
   });
 }
 function signOut(){ if(auth) auth.signOut(); }
+function isLocalDev(){
+  const h=location.hostname;
+  return location.protocol==="file:" || h==="localhost" || h==="127.0.0.1" || h==="";
+}
 function initAuth(){
+  if(isLocalDev()){
+    // 로컬 개발: 로그인 건너뛰고 localStorage 로 저장
+    state=load()||seedState();
+    renderAll();
+    document.getElementById("gate").style.display="none";
+    document.getElementById("wrap").style.display="block";
+    const chip=document.getElementById("whoChip");
+    if(chip) chip.textContent="🛠 로컬 모드";
+    flagSaved("로컬 저장 모드");
+    return;
+  }
   if(typeof firebase==="undefined"){
     state=seedState(); renderAll();
     document.getElementById("wrap").style.display="block";
@@ -532,6 +593,25 @@ function addPlan(){ state.plan.push(planObj(["",0,"","","저축"])); logAdd("계
   const b=document.getElementById("planBody"); b.lastElementChild.querySelector("input").focus(); }
 function delPlan(id){ const p=findPlan(id); if(p) logDel("계획", p.item); state.plan=state.plan.filter(p=>p.id!=id); renderPlan(); renderPlanPersons(); persist(); }
 
+function findTravel(id){ return state.travel.find(t=>t.id==id); }
+function onEditTravel(id,field,val){
+  const t=findTravel(id); if(!t) return;
+  t[field]=val;
+  if(field==="link"){
+    const anchor=document.querySelector(`#travelBody tr[data-id="${id}"] a[data-preview]`);
+    if(anchor){ anchor.href=val; anchor.style.display=val?"inline":"none"; }
+  }
+  persist();
+}
+function addTravel(){ state.travel.push(travelObj(["","","",""])); logAdd("여행"); renderTravel(); persist();
+  const b=document.getElementById("travelBody"); b.lastElementChild.querySelector("input").focus(); }
+function delTravel(id){ const t=findTravel(id); if(t) logDel("여행", t.content||t.date); state.travel=state.travel.filter(t=>t.id!=id); renderTravel(); persist(); }
+function onEditTravelMemo(val){
+  const oldLen=(state.travelMemo||"").length;
+  state.travelMemo=val;
+  persist();
+}
+
 function switchTab(name){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===name));
   document.querySelectorAll('.tab-content').forEach(c=>c.classList.toggle('active', c.id==='tab-'+name));
@@ -561,7 +641,8 @@ const FIELD_LABEL = {
   cat:"대분류", name:"소분류", memo:"메모", payer:"결제자",
   cash:"현금", card:"카드", rem:"내야할돈",
   acc:"통장명", owner:"명의", bal:"잔액", lastCheck:"마지막 확인 날짜",
-  item:"항목", amount:"금액", type:"구분"
+  item:"항목", amount:"금액", type:"구분",
+  date:"날짜", duration:"이동시간", content:"내용", link:"링크"
 };
 function logEditLedger(id, field, oldV, newV){
   const r=findRow(id); if(!r) return;
@@ -574,6 +655,10 @@ function logEditFund(id, field, oldV, newV){
 function logEditPlan(id, field, oldV, newV){
   const p=findPlan(id); if(!p) return;
   logChange("계획", p.item||"(항목없음)", FIELD_LABEL[field]||field, oldV, newV);
+}
+function logEditTravel(id, field, oldV, newV){
+  const t=findTravel(id); if(!t) return;
+  logChange("여행", t.content||t.date||"(빈)", FIELD_LABEL[field]||field, oldV, newV);
 }
 
 // Focus/blur 기반 input 변경 감지 (키스트로크마다 로그 남기지 않음)
@@ -593,6 +678,7 @@ document.addEventListener("focusout", e=>{
   if(scope==="") logEditLedger(id, field, orig, t.value);
   else if(scope==="Fund") logEditFund(id, field, orig, t.value);
   else if(scope==="Plan") logEditPlan(id, field, orig, t.value);
+  else if(scope==="Travel") logEditTravel(id, field, orig, t.value);
 });
 
 function renderLog(){
@@ -700,6 +786,22 @@ function renderPlanPersons(){
   }).join("");
 }
 
+function renderTravel(){
+  const b=document.getElementById("travelBody");
+  b.innerHTML=state.travel.map(t=>`
+   <tr data-id="${t.id}">
+     <td style="text-align:center"><input type="date" value="${esc(t.date)}" oninput="onEditTravel(${t.id},'date',this.value)" style="text-align:center"></td>
+     <td class="tx"><input value="${esc(t.duration)}" placeholder="예: 2시간 30분" oninput="onEditTravel(${t.id},'duration',this.value)"></td>
+     <td class="tx"><input value="${esc(t.content)}" placeholder="예: 후지산 등반" oninput="onEditTravel(${t.id},'content',this.value)"></td>
+     <td class="tx"><div class="link-cell"><input value="${esc(t.link)}" placeholder="https://..." oninput="onEditTravel(${t.id},'link',this.value)"><a data-preview href="${esc(t.link)}" target="_blank" rel="noopener" style="display:${t.link?'inline':'none'}">열기 ↗</a></div></td>
+     <td><button class="del" title="삭제" onclick="delTravel(${t.id})">✕</button></td>
+   </tr>`).join("");
+}
+function renderTravelMemo(){
+  const ta=document.getElementById("travelMemo");
+  if(ta && ta.value!==state.travelMemo) ta.value=state.travelMemo||"";
+}
+
 function renderSummary(){
   const L=state.ledger;
   const totCash=sum(L,r=>r.cash), totCard=sum(L,r=>r.card), totDone=totCash+totCard;
@@ -744,7 +846,7 @@ function renderSummary(){
   }).join("") || `<div class="foot-note">결제자를 지정하면 사람별 분담이 표시됩니다.</div>`;
 }
 
-function renderAll(){ renderLedger(); renderFunds(); renderSummary(); renderPlan(); renderPlanPersons(); renderLog(); }
+function renderAll(){ renderLedger(); renderFunds(); renderSummary(); renderPlan(); renderPlanPersons(); renderTravel(); renderTravelMemo(); renderLog(); }
 document.addEventListener("keydown", e=>{
   if(e.key==="Enter" && !e.isComposing && e.keyCode!==229 && e.target.tagName==="INPUT"){ e.preventDefault(); e.target.blur(); }
 });
