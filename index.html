@@ -142,17 +142,54 @@
     .plan-tbl{min-width:560px}
     h1{font-size:20px}
     .tab{padding:10px 14px;font-size:13px}}
+
+  /* 로그인 게이트 */
+  .gate{position:fixed;inset:0;background:linear-gradient(135deg,#eef2fa 0%,#f4f6fb 100%);
+    display:flex;align-items:center;justify-content:center;padding:24px;z-index:9999}
+  .gate-card{background:#fff;border-radius:18px;box-shadow:0 10px 40px rgba(20,30,50,.12);
+    padding:36px 32px;max-width:380px;width:100%;text-align:center;border:1px solid var(--line)}
+  .gate-card h2{font-size:20px;font-weight:800;color:var(--navy);margin-bottom:8px}
+  .gate-card p{color:var(--muted);font-size:13px;margin-bottom:22px;line-height:1.6}
+  .gate-card .who{font-size:13px;color:var(--ink);margin-bottom:14px}
+  .gate-card .who b{color:var(--navy)}
+  .gate-card .err{color:var(--danger);font-size:12.5px;margin-bottom:14px;background:#fbeceb;
+    padding:9px 12px;border-radius:9px;line-height:1.5}
+  .gsi{display:inline-flex;align-items:center;justify-content:center;gap:10px;
+    background:#fff;border:1px solid #dadce0;color:#3c4043;font-weight:600;font-size:14px;
+    padding:11px 22px;border-radius:9px;cursor:pointer;transition:.15s;font-family:inherit}
+  .gsi:hover{background:#f8f9fa;box-shadow:0 1px 3px rgba(60,64,67,.15)}
+  .gsi svg{width:18px;height:18px}
+  .signout{font-size:11.5px;color:var(--muted);background:none;border:none;cursor:pointer;padding:4px 8px;margin-left:6px}
+  .signout:hover{color:var(--danger)}
+  .who-chip{font-size:11.5px;color:var(--muted);display:inline-flex;align-items:center;gap:4px}
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 </head>
 <body>
-<div class="wrap">
+<div id="gate" class="gate" style="display:none">
+  <div class="gate-card">
+    <h2>💍 예산 정리</h2>
+    <p>허용된 Google 계정으로 로그인해야<br>내용을 확인·수정할 수 있어요.</p>
+    <div id="gateMsg" class="err" style="display:none"></div>
+    <button class="gsi" onclick="signIn()">
+      <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.83.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.32A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.97 10.72A5.4 5.4 0 0 1 3.68 9c0-.6.1-1.18.29-1.72V4.96H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.04l3.01-2.32z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.96l3.01 2.32C4.68 5.16 6.66 3.58 9 3.58z"/></svg>
+      Google로 로그인
+    </button>
+  </div>
+</div>
+
+<div class="wrap" id="wrap" style="display:none">
   <header>
     <div>
       <h1>예산 정리</h1>
     </div>
-    <div class="save-state" id="saveState"></div>
+    <div>
+      <span id="whoChip" class="who-chip"></span>
+      <button class="signout" onclick="signOut()" title="로그아웃">로그아웃</button>
+      <div class="save-state" id="saveState"></div>
+    </div>
   </header>
 
   <div class="tabs">
@@ -182,9 +219,16 @@
     </div>
 
     <div class="card">
-      <h2>💰 여유 자금 (통장별) <span class="hint">통장명·명의·잔액 입력</span></h2>
+      <h2>💰 여유 자금 (통장별) <span class="hint">통장·잔액·메모·마지막 확인 날짜·명의 입력</span></h2>
       <table class="ledger-tbl">
-        <thead><tr><th style="width:40%">통장 (계좌)</th><th style="width:20%;text-align:left">명의</th><th>잔액</th><th style="width:28px"></th></tr></thead>
+        <thead><tr>
+          <th style="width:22%;text-align:left">통장 (계좌)</th>
+          <th style="width:14%">잔액</th>
+          <th style="width:24%;text-align:left">메모</th>
+          <th style="width:16%;text-align:center">마지막 확인 날짜</th>
+          <th style="width:14%;text-align:center">명의</th>
+          <th style="width:28px"></th>
+        </tr></thead>
         <tbody id="fundBody"></tbody>
         <tfoot id="fundFoot"></tfoot>
       </table>
@@ -274,7 +318,7 @@ const catColor = {"결혼":"#7fb0d1","신혼여행":"#7ec593","부동산":"#ac93
 const payerColor = {"":"#b6bcc6","구일":"#7ba3c9","지연":"#77b98a","공동":"#ac93cf"};
 const CAT_MIGRATE = {"결혼준비":"결혼","비행기":"신혼여행"};
 const PLAN_TYPES = ["저축","가능"];
-const typeColor = {"저축":"#d99a5b","가능":"#5cbca0"};
+const typeColor = {"저축":"#c98fa8","가능":"#7bc4a5"};
 const LOG_MAX = 50;
 const KEY = "weddingBudget_v3";
 
@@ -294,14 +338,24 @@ const FIREBASE_CONFIG = {
 const CLOUD = !!FIREBASE_CONFIG.projectId;   // projectId 있으면 실시간 공유 모드
 let db=null, docRef=null, saveTimer=null, hasUnsaved=false;
 
+// ============================================================
+//  접근 권한 (Google 로그인)
+//  이 목록에 있는 Google 계정만 페이지를 볼 수 있고 수정할 수 있음.
+// ============================================================
+const ALLOWED_EMAILS = [
+  "hjiyy0413@gmail.com",
+  "ethan.jeongguil@gmail.com",
+];
+let auth=null, cloudStarted=false;
+
 let uid = 1;
 function rowObj(a){
   if(Array.isArray(a)) return {id:uid++, cat:(CAT_MIGRATE[a[0]]||a[0]||""), name:a[1]||"", payer:a[2]||"", cash:+a[3]||0, card:+a[4]||0, rem:+a[5]||0, memo:a[6]||""};
   return {id:uid++, cat:(CAT_MIGRATE[a.cat]||a.cat||""), name:a.name||"", payer:a.payer||"", cash:+a.cash||0, card:+a.card||0, rem:+a.rem||0, memo:a.memo||""};
 }
 function fundObj(a){
-  if(Array.isArray(a)) return {id:uid++, acc:a[0]||"", owner:a[1]||"", bal:+a[2]||0};
-  return {id:uid++, acc:a.acc||"", owner:a.owner||"", bal:+a.bal||0};
+  if(Array.isArray(a)) return {id:uid++, acc:a[0]||"", owner:a[1]||"", bal:+a[2]||0, memo:a[3]||"", lastCheck:a[4]||""};
+  return {id:uid++, acc:a.acc||"", owner:a.owner||"", bal:+a.bal||0, memo:a.memo||"", lastCheck:a.lastCheck||""};
 }
 function planObj(a){
   if(Array.isArray(a)) return {id:uid++, item:a[0]||"", amount:+a[1]||0, memo:a[2]||"", owner:a[3]||"", type:a[4]||"저축"};
@@ -330,7 +384,7 @@ function flagSaved(t){ const el=document.getElementById("saveState"); if(el) el.
 function toPlain(){
   return {
     ledger: state.ledger.map(r=>({cat:r.cat,name:r.name,payer:r.payer,cash:r.cash,card:r.card,rem:r.rem,memo:r.memo})),
-    funds:  state.funds.map(f=>({acc:f.acc,owner:f.owner,bal:f.bal})),
+    funds:  state.funds.map(f=>({acc:f.acc,owner:f.owner,bal:f.bal,memo:f.memo||"",lastCheck:f.lastCheck||""})),
     plan:   state.plan.map(p=>({item:p.item,amount:p.amount,memo:p.memo,owner:p.owner,type:p.type})),
     log:    state.log||[],
     updated: Date.now()
@@ -350,26 +404,68 @@ function saveCloud(){
   },300);
 }
 function initCloud(){
+  if(cloudStarted) return;
+  cloudStarted=true;
+  db=firebase.firestore();
+  docRef=db.collection("weddingBudget").doc("main");
+  flagSaved("클라우드 연결 중…");
+  docRef.onSnapshot(snap=>{
+    if(!snap.exists){ state=seedState(); renderAll(); saveCloud(); return; }
+    if(snap.metadata.hasPendingWrites) return;   // 내가 방금 쓴 변경의 반향은 무시(입력 끊김 방지)
+    const d=snap.data();
+    state={ledger:(d.ledger||[]).map(rowObj), funds:(d.funds||[]).map(fundObj), plan:(d.plan||[]).map(planObj), log:d.log||[]};
+    renderAll();
+    flagSaved("실시간 동기화됨");
+  }, err=>{ flagSaved("연결 오류: "+(err.code||err.message)); });
+}
+
+// ================= 인증 (Google 로그인 + 화이트리스트) =================
+function showGate(msg){
+  document.getElementById("wrap").style.display="none";
+  document.getElementById("gate").style.display="flex";
+  const el=document.getElementById("gateMsg");
+  if(msg){ el.textContent=msg; el.style.display="block"; }
+  else { el.style.display="none"; el.textContent=""; }
+}
+function showApp(user){
+  document.getElementById("gate").style.display="none";
+  document.getElementById("wrap").style.display="block";
+  const chip=document.getElementById("whoChip");
+  if(chip) chip.textContent="👤 "+user.email;
+}
+function signIn(){
+  if(!auth) return;
+  const provider=new firebase.auth.GoogleAuthProvider();
+  provider.setCustomParameters({prompt:"select_account"});
+  auth.signInWithPopup(provider).catch(e=>{
+    if(e.code==="auth/popup-closed-by-user"||e.code==="auth/cancelled-popup-request") return;
+    showGate("로그인 오류: "+(e.code||e.message));
+  });
+}
+function signOut(){ if(auth) auth.signOut(); }
+function initAuth(){
   if(typeof firebase==="undefined"){
-    // SDK가 아직/미로딩 → 화면이 비지 않게 예시 데이터라도 표시
     state=seedState(); renderAll();
+    document.getElementById("wrap").style.display="block";
     flagSaved("인터넷 연결을 확인해 주세요 (Firebase 로딩 실패)");
     return;
   }
-  try{
-    firebase.initializeApp(FIREBASE_CONFIG);
-    db=firebase.firestore();
-    docRef=db.collection("weddingBudget").doc("main");
-    flagSaved("클라우드 연결 중…");
-    docRef.onSnapshot(snap=>{
-      if(!snap.exists){ state=seedState(); renderAll(); saveCloud(); return; }
-      if(snap.metadata.hasPendingWrites) return;   // 내가 방금 쓴 변경의 반향은 무시(입력 끊김 방지)
-      const d=snap.data();
-      state={ledger:(d.ledger||[]).map(rowObj), funds:(d.funds||[]).map(fundObj), plan:(d.plan||[]).map(planObj), log:d.log||[]};
-      renderAll();
-      flagSaved("실시간 동기화됨");
-    }, err=>{ flagSaved("연결 오류: "+(err.code||err.message)); });
-  }catch(e){ flagSaved("Firebase 설정 오류: "+e.message); }
+  try{ firebase.initializeApp(FIREBASE_CONFIG); }
+  catch(e){ showGate("Firebase 설정 오류: "+e.message); return; }
+  auth=firebase.auth();
+  showGate();
+  auth.onAuthStateChanged(user=>{
+    if(!user){ showGate(); return; }
+    const email=(user.email||"").toLowerCase();
+    const ok=ALLOWED_EMAILS.map(x=>x.toLowerCase()).includes(email);
+    if(!ok){
+      showGate(`이 계정(${user.email})은 접근 권한이 없어요.`);
+      auth.signOut();
+      return;
+    }
+    showApp(user);
+    initCloud();
+  });
 }
 
 function exportCSV(){
@@ -404,16 +500,19 @@ function onEditFund(id,field,val){
     const sel=document.querySelector(`#fundBody tr[data-id="${id}"] select.pill`);
     if(sel) sel.style.backgroundColor=payerColor[val]||'#a8b0bc';
   }
-  if(field==="bal"){
-    document.getElementById("fundFoot").innerHTML=`<tr><td>합계</td><td></td>
-      <td class="num">${won(sum(state.funds,f=>f.bal))}</td><td></td></tr>`;
-  }
+  if(field==="bal"){ renderFundFoot(); }
   renderSummary(); persist();
+}
+function renderFundFoot(){
+  document.getElementById("fundFoot").innerHTML=`<tr>
+    <td>합계</td>
+    <td class="num">${won(sum(state.funds,f=>f.bal))}</td>
+    <td></td><td></td><td></td><td></td></tr>`;
 }
 function addLedger(){ state.ledger.push(rowObj(["결혼준비","","",0,0,0,""])); logAdd("지출"); renderLedger(); renderSummary(); persist();
   const b=document.getElementById("ledgerBody"); b.lastElementChild.querySelector("input").focus(); }
 function delLedger(id){ const r=findRow(id); if(r) logDel("지출", r.name); state.ledger=state.ledger.filter(r=>r.id!=id); renderLedger(); renderSummary(); persist(); }
-function addFund(){ state.funds.push(fundObj(["","",0])); logAdd("자금"); renderFunds(); renderSummary(); persist();
+function addFund(){ state.funds.push(fundObj(["","",0,"",""])); logAdd("자금"); renderFunds(); renderSummary(); persist();
   const b=document.getElementById("fundBody"); b.lastElementChild.querySelector("input").focus(); }
 function delFund(id){ const f=findFund(id); if(f) logDel("자금", f.acc); state.funds=state.funds.filter(f=>f.id!=id); renderFunds(); renderSummary(); persist(); }
 
@@ -421,9 +520,10 @@ function findPlan(id){ return state.plan.find(p=>p.id==id); }
 function onEditPlan(id,field,val){
   const p=findPlan(id); if(!p) return;
   p[field]=(field==="amount")?(parseFloat(val)||0):val;
-  if(field==="owner"){
-    const sel=document.querySelector(`#planBody tr[data-id="${id}"] select.pill`);
-    if(sel) sel.style.backgroundColor=payerColor[val]||'#a8b0bc';
+  if(field==="owner" || field==="type"){
+    const sels=document.querySelectorAll(`#planBody tr[data-id="${id}"] select.pill`);
+    if(field==="owner" && sels[0]) sels[0].style.backgroundColor=payerColor[val]||'#a8b0bc';
+    if(field==="type"  && sels[1]) sels[1].style.backgroundColor=typeColor[val]||'#8a63b8';
   }
   if(field==="amount") renderPlanFoot();
   renderPlanPersons(); persist();
@@ -460,7 +560,7 @@ function logDel(scope, target){ pushLog(`<span class="k">${scope}</span> "${esc(
 const FIELD_LABEL = {
   cat:"대분류", name:"소분류", memo:"메모", payer:"결제자",
   cash:"현금", card:"카드", rem:"내야할돈",
-  acc:"통장명", owner:"명의", bal:"잔액",
+  acc:"통장명", owner:"명의", bal:"잔액", lastCheck:"마지막 확인 날짜",
   item:"항목", amount:"금액", type:"구분"
 };
 function logEditLedger(id, field, oldV, newV){
@@ -556,12 +656,13 @@ function renderFunds(){
   b.innerHTML=state.funds.map(f=>`
    <tr data-id="${f.id}">
      <td class="tx"><input value="${esc(f.acc)}" placeholder="통장/계좌명" oninput="onEditFund(${f.id},'acc',this.value)"></td>
-     <td class="tx"><select class="pill" style="background-color:${payerColor[f.owner]||'#a8b0bc'}" onchange="onEditFund(${f.id},'owner',this.value)">${payOptions(f.owner)}</select></td>
      <td><input type="number" value="${f.bal||''}" placeholder="0" oninput="onEditFund(${f.id},'bal',this.value)"></td>
+     <td class="tx"><input value="${esc(f.memo||'')}" placeholder="메모" oninput="onEditFund(${f.id},'memo',this.value)"></td>
+     <td style="text-align:center"><input type="date" value="${esc(f.lastCheck||'')}" oninput="onEditFund(${f.id},'lastCheck',this.value)" style="text-align:center"></td>
+     <td class="tx" style="text-align:center"><select class="pill" style="background-color:${payerColor[f.owner]||'#a8b0bc'}" onchange="onEditFund(${f.id},'owner',this.value)">${payOptions(f.owner)}</select></td>
      <td><button class="del" title="삭제" onclick="delFund(${f.id})">✕</button></td>
    </tr>`).join("");
-  document.getElementById("fundFoot").innerHTML=`<tr><td>합계</td><td></td>
-    <td class="num">${won(sum(state.funds,f=>f.bal))}</td><td></td></tr>`;
+  renderFundFoot();
 }
 
 function renderPlan(){
@@ -647,8 +748,12 @@ function renderAll(){ renderLedger(); renderFunds(); renderSummary(); renderPlan
 document.addEventListener("keydown", e=>{
   if(e.key==="Enter" && !e.isComposing && e.keyCode!==229 && e.target.tagName==="INPUT"){ e.preventDefault(); e.target.blur(); }
 });
-if(CLOUD){ initCloud(); }
-else { renderAll(); flagSaved("준비됨 (내 기기 저장 모드)"); }
+if(CLOUD){ initAuth(); }
+else {
+  document.getElementById("wrap").style.display="block";
+  renderAll();
+  flagSaved("준비됨 (내 기기 저장 모드)");
+}
 </script>
 </body>
 </html>
